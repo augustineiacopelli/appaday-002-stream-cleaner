@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Stream Cleaner — AppADay #002</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#1a1209;--surface:#221a0e;--border:#3d2e15;--accent:#f5c842;--accent2:#e8843a;--text:#f0e6cc;--muted:#8a7a5a;--danger:#e84444;--clean:#44e8a0;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'IBM Plex Mono',monospace;min-height:100dvh;display:flex;flex-direction:column;align-items:center;overflow-x:hidden;touch-action:none;}
+  #app-header{width:100%;background:#0f0a04;border-bottom:2px solid var(--border);padding:8px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+  .app-id{font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;}
+  .app-id a{color:var(--muted);text-decoration:none;}
+  .app-title-small{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--accent);}
+  #main{flex:1;display:flex;flex-direction:column;align-items:center;padding:14px 14px 20px;width:100%;max-width:480px;}
+  h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(38px,10vw,64px);letter-spacing:.04em;color:var(--accent);line-height:1;text-align:center;margin-bottom:3px;text-shadow:0 0 40px rgba(245,200,66,.3);}
+  .tagline{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.15em;text-align:center;margin-bottom:16px;}
+  .screen{width:100%;display:none;flex-direction:column;align-items:center;}
+  .screen.active{display:flex;}
+  .instructions{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px;width:100%;margin-bottom:18px;font-size:12px;line-height:1.9;}
+  .instructions strong{color:var(--accent);}
+  .btn{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:.1em;padding:12px 34px;border:none;border-radius:4px;cursor:pointer;transition:transform .1s;}
+  .btn:active{transform:scale(.96);}
+  .btn-primary{background:var(--accent);color:#1a1209;box-shadow:0 4px 20px rgba(245,200,66,.3);}
+  .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border);font-size:15px;padding:9px 22px;}
+  #hud{display:flex;justify-content:space-between;align-items:flex-end;width:100%;margin-bottom:8px;}
+  .hud-box{display:flex;flex-direction:column;align-items:center;}
+  .hud-label{font-size:9px;color:var(--muted);letter-spacing:.15em;text-transform:uppercase;margin-bottom:1px;}
+  .hud-value{font-family:'Bebas Neue',sans-serif;font-size:34px;line-height:1;color:var(--accent);}
+  #hud-timer{color:var(--accent2);}
+  #hud-timer.urgent{color:var(--danger);animation:pulse .4s infinite alternate;}
+  @keyframes pulse{to{opacity:.5;}}
+  #timer-bar-wrap{width:100%;height:5px;background:var(--border);border-radius:3px;margin-bottom:12px;overflow:hidden;}
+  #timer-bar{height:100%;background:var(--accent2);border-radius:3px;transition:width .1s linear,background .3s;}
+  #timer-bar.urgent{background:var(--danger);}
+  #game-wrap{position:relative;width:100%;touch-action:none;user-select:none;cursor:none;}
+  #game-canvas{display:block;width:100%;height:100%;border-radius:10px;border:2px solid var(--border);}
+  #progress-wrap{width:100%;margin-top:10px;margin-bottom:5px;}
+  #progress-label{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px;letter-spacing:.1em;text-transform:uppercase;}
+  #progress-bar-bg{width:100%;height:9px;background:var(--border);border-radius:5px;overflow:hidden;}
+  #progress-bar{height:100%;background:linear-gradient(90deg,#44e8a0,#f5c842);border-radius:5px;width:0%;transition:width .1s;}
+  .level-tag{font-size:11px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-top:4px;}
+  .result-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 18px;width:100%;text-align:center;margin-bottom:14px;}
+  .result-verdict{font-family:'Bebas Neue',sans-serif;font-size:clamp(32px,9vw,50px);line-height:1;margin-bottom:5px;}
+  .result-verdict.win{color:var(--clean);}.result-verdict.lose{color:var(--danger);}
+  .result-score-big{font-family:'Bebas Neue',sans-serif;font-size:68px;line-height:1;color:var(--accent);}
+  .result-score-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.15em;margin-bottom:12px;}
+  .result-stats{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px;}
+  .result-stat{background:#0f0a04;border-radius:6px;padding:8px;}
+  .result-stat .rs-val{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--accent2);}
+  .result-stat .rs-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;}
+  .result-buttons{display:flex;gap:9px;flex-wrap:wrap;justify-content:center;}
+  #name-entry{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:13px;margin-bottom:14px;display:flex;flex-direction:column;align-items:center;gap:8px;}
+  #name-entry label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;}
+  #player-name-input{background:#0f0a04;border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:14px;padding:8px 12px;width:100%;max-width:200px;text-align:center;letter-spacing:.1em;text-transform:uppercase;outline:none;}
+  #player-name-input:focus{border-color:var(--accent);}
+  .lb-title{font-family:'Bebas Neue',sans-serif;font-size:36px;color:var(--accent);letter-spacing:.06em;margin-bottom:3px;text-align:center;}
+  .lb-sub{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;margin-bottom:16px;text-align:center;}
+  #lb-table{width:100%;border-collapse:collapse;margin-bottom:16px;}
+  #lb-table th{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;padding:5px 7px;text-align:left;border-bottom:1px solid var(--border);}
+  #lb-table td{padding:8px 7px;font-size:13px;border-bottom:1px solid #2a2010;vertical-align:middle;}
+  #lb-table tr.my-score td{color:var(--accent);}
+  .rank-num{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--muted);width:30px;}
+  #lb-table tr:nth-child(1) .rank-num{color:#ffd700;}
+  #lb-table tr:nth-child(2) .rank-num{color:#c0c0c0;}
+  #lb-table tr:nth-child(3) .rank-num{color:#cd7f32;}
+  .lb-score-cell{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--accent2);text-align:right;}
+  .lb-level-badge{font-size:9px;background:var(--border);color:var(--muted);border-radius:3px;padding:2px 5px;text-transform:uppercase;}
+  .empty-lb{text-align:center;color:var(--muted);font-size:12px;padding:26px 0;}
+  #level-flash{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:100;opacity:0;transition:opacity .3s;}
+  #level-flash.show{opacity:1;}
+  .lf-inner{font-family:'Bebas Neue',sans-serif;font-size:60px;color:var(--accent);text-shadow:0 0 60px rgba(245,200,66,.8);animation:popIn .4s cubic-bezier(.17,.67,.35,1.3) forwards;}
+  @keyframes popIn{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.1);opacity:1}100%{transform:scale(1);opacity:1}}
+</style>
+</head>
+<body>
+<div id="app-header">
+  <span class="app-id"><a href="../index.html">← AppADay</a></span>
+  <span class="app-title-small">Stream Cleaner</span>
+  <span class="app-id">#002</span>
+</div>
+<div id="main">
+  <h1>STREAM<br>CLEANER</h1>
+  <p class="tagline">Aim · Blast · Score</p>
+
+  <div class="screen active" id="start-screen">
+    <div class="instructions">
+      <strong>The mission:</strong> blast the urinal screen clean before time runs out.<br><br>
+      <strong>Press and drag</strong> anywhere on the pad to move the hose across the surface. The stream arcs up and forward — the further up the pad you aim, the further the stream reaches ahead.<br><br>
+      <strong>Power ramps up</strong> at the start and fades at the end — just like real life.<br><br>
+      <strong>80% clean</strong> or better to advance.
+    </div>
+    <button class="btn btn-primary" onclick="startGame()">STEP UP TO THE PLATE</button>
+    <div style="height:10px"></div>
+    <button class="btn btn-ghost" onclick="showScreen('lb-screen');loadLeaderboard()">🏆 Leaderboard</button>
+  </div>
+
+  <div class="screen" id="game-screen">
+    <div id="hud">
+      <div class="hud-box"><div class="hud-label">Score</div><div class="hud-value" id="hud-score">0</div></div>
+      <div class="hud-box"><div class="hud-label">Level</div><div class="hud-value" id="hud-level">1</div></div>
+      <div class="hud-box"><div class="hud-label">Time</div><div class="hud-value" id="hud-timer">25</div></div>
+    </div>
+    <div id="timer-bar-wrap"><div id="timer-bar"></div></div>
+    <div id="game-wrap"><canvas id="game-canvas"></canvas></div>
+    <div id="progress-wrap">
+      <div id="progress-label"><span>Cleared</span><span id="progress-pct">0%</span></div>
+      <div id="progress-bar-bg"><div id="progress-bar"></div></div>
+    </div>
+    <div class="level-tag" id="level-tag">Level 1 — 25 sec</div>
+  </div>
+
+  <div class="screen" id="result-screen">
+    <div class="result-card">
+      <div class="result-verdict" id="result-verdict">CLEARED!</div>
+      <div class="result-score-big" id="result-score">0</div>
+      <div class="result-score-label">points</div>
+      <div class="result-stats">
+        <div class="result-stat"><div class="rs-val" id="rs-cleared">0%</div><div class="rs-lbl">Cleared</div></div>
+        <div class="result-stat"><div class="rs-val" id="rs-level">1</div><div class="rs-lbl">Level Reached</div></div>
+        <div class="result-stat"><div class="rs-val" id="rs-time">0s</div><div class="rs-lbl">Time Left</div></div>
+        <div class="result-stat"><div class="rs-val" id="rs-bonus">+0</div><div class="rs-lbl">Speed Bonus</div></div>
+      </div>
+    </div>
+    <div id="name-entry">
+      <label>Enter your name for the leaderboard</label>
+      <input type="text" id="player-name-input" maxlength="12" placeholder="YOUR NAME">
+      <button class="btn btn-primary" style="font-size:16px;padding:8px 24px" onclick="submitScore()">POST SCORE</button>
+    </div>
+    <div class="result-buttons">
+      <button class="btn btn-ghost" onclick="startGame()">PLAY AGAIN</button>
+      <button class="btn btn-ghost" onclick="showScreen('lb-screen');loadLeaderboard()">🏆 BOARD</button>
+      <button class="btn btn-ghost" onclick="showScreen('start-screen')">MENU</button>
+    </div>
+  </div>
+
+  <div class="screen" id="lb-screen">
+    <div class="lb-title">LEADERBOARD</div>
+    <div class="lb-sub">Hall of Legendary Aim</div>
+    <table id="lb-table">
+      <thead><tr><th>#</th><th>Name</th><th style="text-align:right">Score</th></tr></thead>
+      <tbody id="lb-body"><tr><td colspan="3"><div class="empty-lb">No scores yet.</div></td></tr></tbody>
+    </table>
+    <div class="result-buttons">
+      <button class="btn btn-ghost" onclick="startGame()">PLAY</button>
+      <button class="btn btn-ghost" onclick="showScreen('start-screen')">MENU</button>
+    </div>
+  </div>
+</div>
+<div id="level-flash"><div class="lf-inner" id="level-flash-text">LEVEL 2</div></div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════
+const LEVELS = [
+  {time:25,goal:.80,label:'25 sec'},
+  {time:20,goal:.82,label:'20 sec'},
+  {time:16,goal:.84,label:'16 sec'},
+  {time:13,goal:.86,label:'13 sec'},
+  {time:10,goal:.88,label:'10 sec'},
+];
+const PAD_COLORS = [
+  {r:31, g:184,b:212,dr:14, dg:143,db:160,lr:93, lg:214,lb:234},
+  {r:212,g:43, b:31, dr:158,dg:31, db:22, lr:232,lg:96, lb:89 },
+  {r:124,g:63, b:192,dr:90, dg:46, db:140,lr:168,lg:112,lb:224},
+  {r:40, g:166,b:76, dr:26, dg:117,db:53, lr:92, lg:203,lb:122},
+  {r:212,g:124,b:31, dr:160,dg:90, db:16, lr:232,lg:168,lb:90 },
+];
+const LB_KEY = 'sc_lb_v7';
+
+// ═══════════════════════════════════════════════
+//  CANVAS / LAYOUT
+//  The entire canvas IS the pad. The hose graphic
+//  is drawn on top of the pad, positioned wherever
+//  the player drags. No "below" zone — the hose
+//  floats on the pad surface like a top-down view.
+// ═══════════════════════════════════════════════
+let canvas, ctx, CW, CH;
+let padData = null, totalDirty = 0, clearedPx = 0, drops = [];
+let gs = {level:0,score:0,timeLeft:25,timerMax:25,running:false,pressing:false};
+let timerInterval=null, rafId=null, lastFinalScore=0;
+
+// Hose position — the CENTER of the hose unit on the pad
+// Player drags anywhere on the canvas to move it
+let hoseX=0, hoseY=0, targetX=0, targetY=0;
+
+// ── Stream power ──────────────────────────────
+function streamPower(){
+  const elapsed  = gs.timerMax - gs.timeLeft;
+  const ramp     = gs.timerMax * 0.05;
+  if(elapsed   < ramp) return elapsed   / ramp;
+  if(gs.timeLeft < ramp) return gs.timeLeft / ramp;
+  return 1;
+}
+
+// ── Impact point ─────────────────────────────
+// The stream exits the nozzle upward and arcs forward.
+// "Forward" = toward the TOP of the pad (smaller Y).
+// When the hose is near the BOTTOM of the pad (hoseY close to CH):
+//   angle is steep → stream lands close ahead (small X-offset, small Y-offset)
+// When the hose is near the TOP (hoseY close to 0):
+//   angle is shallow → stream lands further ahead
+//
+// In practice: impact Y = hoseY - fixedReach*power
+//              impact X = hoseX (same column — no side drift)
+// The hose itself IS the cursor, so wherever you drag = wherever you aim.
+// The nozzle tip is at hoseX, hoseY - nozzleOffset.
+// The stream cleans at the nozzle tip position directly.
+// This way moving the hose across any part of the pad cleans that area.
+
+const HOSE_R   = 14;  // visual radius of hose unit
+const BRUSH_R  = 12;  // tight cleaning radius — like a focused stream hit
+const CLEAN_ST = 0.55;
+
+function nozzleTip(){
+  // Nozzle is at the top of the hose unit
+  return { x: hoseX, y: hoseY - HOSE_R };
+}
+
+// The stream ARC is purely visual — control point rises above tip.
+// The CLEANING happens at tip.x, tip.y (= hoseX, hoseY - HOSE_R).
+// Moving the hose IS aiming — you clean wherever the hose is.
+function arcControlPoint(tip){
+  const power = streamPower();
+  // Arc rises and comes back down to tip — visual only
+  // How far the arc rises = based on position in pad
+  const posY = hoseY / CH; // 0=top, 1=bottom
+  // Deeper in pad = taller arc (steeper angle)
+  const arcH = CH * 0.20 * power * (0.4 + posY * 0.8);
+  return { x: tip.x, y: tip.y - arcH };
+}
+
+// ═══════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded',()=>{
+  canvas = document.getElementById('game-canvas');
+  ctx    = canvas.getContext('2d',{willReadFrequently:true});
+  sizeCanvas();
+  hoseX=targetX=CW/2; hoseY=targetY=CH*0.75;
+  attachInputs();
+});
+
+function sizeCanvas(){
+  const wrap = document.getElementById('game-wrap');
+  CW = wrap.clientWidth||340;
+  CH = Math.round(CW*0.92);
+  wrap.style.height=CH+'px';
+  canvas.width=CW; canvas.height=CH;
+}
+
+// ═══════════════════════════════════════════════
+//  INPUT — drag anywhere to move the hose
+// ═══════════════════════════════════════════════
+function attachInputs(){
+  canvas.addEventListener('mousedown', e=>{e.preventDefault();gs.pressing=true; moveTarget(e);},{passive:false});
+  canvas.addEventListener('mousemove', e=>{e.preventDefault();moveTarget(e);if(e.buttons>0)gs.pressing=true;},{passive:false});
+  canvas.addEventListener('mouseup',   ()=>gs.pressing=false);
+  canvas.addEventListener('mouseleave',()=>gs.pressing=false);
+  canvas.addEventListener('touchstart',e=>{e.preventDefault();gs.pressing=true; moveTarget(e);},{passive:false});
+  canvas.addEventListener('touchmove', e=>{e.preventDefault();moveTarget(e);},{passive:false});
+  canvas.addEventListener('touchend',  ()=>gs.pressing=false,{passive:false});
+}
+
+function moveTarget(e){
+  if(!gs.running) return;
+  const rect=canvas.getBoundingClientRect();
+  const sx=CW/rect.width, sy=CH/rect.height;
+  const cx=e.touches?e.touches[0].clientX:e.clientX;
+  const cy=e.touches?e.touches[0].clientY:e.clientY;
+  const m=HOSE_R+4;
+  targetX=Math.max(m,Math.min(CW-m,(cx-rect.left)*sx));
+  targetY=Math.max(m,Math.min(CH-m,(cy-rect.top)*sy));
+}
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ═══════════════════════════════════════════════
+//  LEVEL GENERATION
+// ═══════════════════════════════════════════════
+function generateLevel(idx){
+  const c=PAD_COLORS[idx%PAD_COLORS.length];
+  ctx.clearRect(0,0,CW,CH);
+
+  // Dark surround
+  ctx.fillStyle='#0f0c08'; ctx.fillRect(0,0,CW,CH);
+
+  // Pad fills nearly entire canvas
+  const m=CW*0.03, rad=CW*0.045;
+  const L=m,T=m,W=CW-m*2,H=CH-m*2;
+
+  ctx.shadowColor='rgba(0,0,0,.6)'; ctx.shadowBlur=12; ctx.shadowOffsetY=4;
+  ctx.beginPath(); rrect(ctx,L,T,W,H,rad);
+  ctx.fillStyle=`rgb(${c.r},${c.g},${c.b})`; ctx.fill();
+  ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+
+  // Hex texture
+  ctx.save();
+  ctx.beginPath(); rrect(ctx,L,T,W,H,rad); ctx.clip();
+  const hexR=CW*0.034,hexW=hexR*2,hexHH=Math.sqrt(3)*hexR;
+  const cols=Math.ceil(W/(hexW*.75))+2, rows=Math.ceil(H/hexHH)+2;
+  for(let row=-1;row<rows;row++){
+    for(let col=-1;col<cols;col++){
+      const hx=L+col*hexW*.75, hy=T+row*hexHH+(col%2===0?0:hexHH/2), ir=hexR*.50;
+      ctx.beginPath();
+      for(let i=0;i<6;i++){const a=(Math.PI/3)*i-Math.PI/6;ctx.lineTo(hx+ir*Math.cos(a),hy+ir*Math.sin(a));}
+      ctx.closePath();
+      ctx.fillStyle=`rgba(${c.dr},${c.dg},${c.db},.65)`; ctx.fill();
+      ctx.beginPath(); ctx.arc(hx-ir*.28,hy-ir*.28,ir*.15,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${c.lr},${c.lg},${c.lb},.45)`; ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // Rim highlight
+  ctx.beginPath(); rrect(ctx,L,T,W,H,rad);
+  const hl=ctx.createLinearGradient(0,T,0,T+H*.07);
+  hl.addColorStop(0,`rgba(${c.lr},${c.lg},${c.lb},.35)`); hl.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=hl; ctx.fill();
+
+  // Capture pixel data
+  padData   =ctx.getImageData(0,0,CW,CH);
+  totalDirty=countDirty(padData);
+  clearedPx =0; drops=[];
+  hoseX=targetX=CW/2; hoseY=targetY=CH*0.75;
+}
+
+function rrect(c,x,y,w,h,r){
+  c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.arcTo(x+w,y,x+w,y+r,r);
+  c.lineTo(x+w,y+h-r);c.arcTo(x+w,y+h,x+w-r,y+h,r);
+  c.lineTo(x+r,y+h);c.arcTo(x,y+h,x,y+h-r,r);
+  c.lineTo(x,y+r);c.arcTo(x,y,x+r,y,r);c.closePath();
+}
+
+function countDirty(imgData){
+  const d=imgData.data;let n=0;
+  for(let i=0;i<d.length;i+=4) if(!(d[i]>200&&d[i+1]>200&&d[i+2]>200)) n++;
+  return n;
+}
+
+// ═══════════════════════════════════════════════
+//  CLEANING — bleach pixels around the hose position
+// ═══════════════════════════════════════════════
+function applyClean(cx,cy){
+  if(!padData) return;
+  const d=padData.data;
+  const r=BRUSH_R, lx=Math.round(cx), ly=Math.round(cy);
+  let nc=0;
+  for(let dy=-r;dy<=r;dy++){
+    for(let dx=-r;dx<=r;dx++){
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist>r) continue;
+      const px=lx+dx,py=ly+dy;
+      if(px<0||px>=CW||py<0||py>=CH) continue;
+      const idx=(py*CW+px)*4;
+      const was=!(d[idx]>200&&d[idx+1]>200&&d[idx+2]>200);
+      const f=Math.exp(-(dist*dist)/(2*(r*.42)*(r*.42)))*CLEAN_ST;
+      d[idx]  =Math.min(255,Math.round(d[idx]  +(235-d[idx])  *f));
+      d[idx+1]=Math.min(255,Math.round(d[idx+1]+(232-d[idx+1])*f));
+      d[idx+2]=Math.min(255,Math.round(d[idx+2]+(228-d[idx+2])*f));
+      if(was&&d[idx]>200&&d[idx+1]>200&&d[idx+2]>200) nc++;
+    }
+  }
+  clearedPx+=nc;
+  updateProgress();
+}
+
+// ═══════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════
+function render(){
+  // Smooth hose toward target
+  hoseX+=(targetX-hoseX)*0.20;
+  hoseY+=(targetY-hoseY)*0.20;
+
+  // Restore pad
+  if(padData) ctx.putImageData(padData,0,0);
+
+  const power=streamPower();
+  const tip=nozzleTip();
+  const cp=arcControlPoint(tip);
+
+  if(gs.pressing && power>0.01){
+    // Clean at the nozzle tip position AND at points along the visual arc
+    // so sweeping the hose across the pad leaves a proper trail
+    const arcSteps = 5;
+    for(let s=0; s<=arcSteps; s++){
+      const t = s/arcSteps;
+      const mt = 1-t;
+      // Quadratic bezier point along the arc (first half, going up)
+      const ax = mt*mt*tip.x + 2*mt*t*cp.x + t*t*cp.x;
+      const ay = mt*mt*tip.y + 2*mt*t*cp.y + t*t*cp.y;
+      applyClean(ax, ay);
+    }
+    drawStream(tip, cp, power);
+    drawSplash(tip.x, tip.y, power);
+    spawnDrops(tip.x, tip.y, power);
+  }
+
+  drawHose(hoseX, hoseY, power);
+  tickDrops();
+}
+
+// ═══════════════════════════════════════════════
+//  DRAW HOSE — viewed from above, sitting on pad
+//  Flesh-coloured cylindrical body with hand
+// ═══════════════════════════════════════════════
+function drawHose(hx,hy,power){
+  const bW=CW*0.072, bH=CW*0.155;
+  const bx=hx-bW/2, by=hy-bH*0.55;
+  const s1='#c68642',s2='#e8a96a',s3='#9a5c28';
+
+  // Body
+  const bg=ctx.createLinearGradient(bx,0,bx+bW,0);
+  bg.addColorStop(0,s3);bg.addColorStop(.25,s1);bg.addColorStop(.55,s2);bg.addColorStop(.80,s1);bg.addColorStop(1,s3);
+  ctx.beginPath(); ctx.roundRect(bx,by,bW,bH,bW*.22);
+  ctx.fillStyle=bg; ctx.fill(); ctx.strokeStyle=s3; ctx.lineWidth=1.5; ctx.stroke();
+
+  // Vein lines
+  ctx.strokeStyle='rgba(100,45,10,.18)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(hx-bW*.1,by+bH*.1); ctx.lineTo(hx-bW*.08,by+bH*.85); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(hx+bW*.1,by+bH*.12); ctx.lineTo(hx+bW*.08,by+bH*.82); ctx.stroke();
+
+  // Nozzle at top
+  const nH=bW*.65,nTW=bW*.40,nBW=bW*.78,nY=by;
+  const ng=ctx.createLinearGradient(hx-nBW/2,0,hx+nBW/2,0);
+  ng.addColorStop(0,s3);ng.addColorStop(.4,s2);ng.addColorStop(.7,s1);ng.addColorStop(1,s3);
+  ctx.beginPath();
+  ctx.moveTo(hx-nBW/2,nY+nH); ctx.lineTo(hx+nBW/2,nY+nH);
+  ctx.lineTo(hx+nTW/2,nY);    ctx.lineTo(hx-nTW/2,nY);
+  ctx.closePath(); ctx.fillStyle=ng; ctx.fill(); ctx.strokeStyle=s3; ctx.lineWidth=1; ctx.stroke();
+
+  // Chrome collar
+  const cG=ctx.createLinearGradient(hx-bW*.55,0,hx+bW*.55,0);
+  cG.addColorStop(0,'#666');cG.addColorStop(.3,'#ddd');cG.addColorStop(.7,'#bbb');cG.addColorStop(1,'#555');
+  ctx.beginPath(); ctx.roundRect(hx-bW*.55,nY+nH-bW*.12,bW*1.1,bW*.24,3);
+  ctx.fillStyle=cG; ctx.fill();
+
+  // Nozzle opening glow
+  ctx.beginPath(); ctx.ellipse(hx,nY,nTW*.44,nH*.24,0,0,Math.PI*2);
+  ctx.fillStyle=power>.05?`rgba(255,210,0,${.9*power})`:'#111'; ctx.fill();
+
+  // ── Hand wrapped around lower body ──
+  const hCY=by+bH*.60, hH=bH*.38, fd='#b07040',fb='#d4946a',fl='#e8ad82',fs='rgba(80,35,8,.25)';
+
+  // Palm
+  const pg=ctx.createLinearGradient(hx-bW*.54,0,hx+bW*.54,0);
+  pg.addColorStop(0,fd);pg.addColorStop(.25,fb);pg.addColorStop(.55,fl);pg.addColorStop(.80,fb);pg.addColorStop(1,fd);
+  ctx.beginPath(); ctx.roundRect(hx-bW*.54,hCY-hH/2,bW*1.08,hH,bW*.16);
+  ctx.fillStyle=pg; ctx.fill(); ctx.strokeStyle=fd; ctx.lineWidth=.9; ctx.stroke();
+
+  // Fingers (right side, stacked vertically along shaft)
+  const fW=bW*.80,fH2=hH*.20,fGap=hH*.235,fX=hx+bW*.52,fSY=hCY-hH*.44;
+  [.95,1,.98,.82].forEach((reach,i)=>{
+    const fy=fSY+i*fGap,fw=fW*reach;
+    const fg=ctx.createLinearGradient(fX,0,fX+fw,0);
+    fg.addColorStop(0,fb);fg.addColorStop(.5,fl);fg.addColorStop(1,fd);
+    ctx.beginPath(); ctx.roundRect(fX,fy,fw,fH2,fH2*.45);
+    ctx.fillStyle=fg; ctx.fill(); ctx.strokeStyle=fd; ctx.lineWidth=.7; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(fX+fw*.3,fy+fH2*.55); ctx.lineTo(fX+fw*.85,fy+fH2*.55);
+    ctx.strokeStyle=fs; ctx.lineWidth=1; ctx.stroke();
+  });
+
+  // Thumb (left)
+  const tW=bW*.58,tH=hH*.52,tX=hx-bW*.52-tW,tY=hCY-tH*.52;
+  const tg=ctx.createLinearGradient(tX,0,tX+tW,0);
+  tg.addColorStop(0,fd);tg.addColorStop(.5,fl);tg.addColorStop(1,fb);
+  ctx.beginPath(); ctx.roundRect(tX,tY,tW,tH,tW*.42);
+  ctx.fillStyle=tg; ctx.fill(); ctx.strokeStyle=fd; ctx.lineWidth=.8; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(tX+tW*.15,tY+tH*.48); ctx.lineTo(tX+tW*.85,tY+tH*.46);
+  ctx.strokeStyle=fs; ctx.lineWidth=1; ctx.stroke();
+
+  // Glint
+  ctx.beginPath(); ctx.ellipse(hx-bW*.16,by+bH*.10,bW*.08,bH*.055,-.3,0,Math.PI*2);
+  ctx.fillStyle='rgba(255,215,165,.20)'; ctx.fill();
+}
+
+// ═══════════════════════════════════════════════
+//  DRAW STREAM — arc rises from nozzle tip upward
+//  Control point directly above tip → exits going up,
+//  then falls back to same X (symmetric arch)
+// ═══════════════════════════════════════════════
+function drawStream(tip, cp, power){
+  if(power<.02) return;
+
+  // Arch: rises from tip up to cp, then back down to tip
+  // (visual only — cleaning happens at hose position)
+  const sx=tip.x, sy=tip.y;
+  const ex=tip.x, ey=tip.y; // ends back at tip (arch)
+  const cpx=cp.x, cpy=cp.y;
+
+  const steps=20;
+  const spX=[],spY=[];
+  for(let i=0;i<=steps;i++){
+    const t=i/steps, mt=1-t;
+    // Use cubic bezier to make a proper arch: goes up then comes back down
+    // P0=tip, P1=left-of-peak, P2=right-of-peak, P3=tip
+    // Simplified: use two quadratic curves stitched
+    if(t<=0.5){
+      const t2=t*2, mt2=1-t2;
+      spX.push(mt2*mt2*sx + 2*mt2*t2*cpx + t2*t2*cpx);
+      spY.push(mt2*mt2*sy + 2*mt2*t2*cpy + t2*t2*cpy);
+    } else {
+      const t2=(t-0.5)*2, mt2=1-t2;
+      spX.push(mt2*mt2*cpx + 2*mt2*t2*cpx + t2*t2*ex);
+      spY.push(mt2*mt2*cpy + 2*mt2*t2*cpy + t2*t2*ey);
+    }
+  }
+
+  function wAt(t){ return Math.max(1.5,(4.5+t*2)*power*(1-.50*Math.sin(Math.PI*t))); }
+
+  for(let i=0;i<steps;i++){
+    const t0=i/steps;
+    const x0=spX[i],y0=spY[i],x1=spX[i+1],y1=spY[i+1];
+    const w0=wAt(t0),w1=wAt((i+1)/steps);
+    const dx=x1-x0,dy=y1-y0,len=Math.sqrt(dx*dx+dy*dy)||1;
+    const nx=-dy/len,ny=dx/len;
+    const a=(0.88-t0*.22)*power;
+
+    // Glow
+    ctx.beginPath();
+    ctx.moveTo(x0+nx*(w0+5),y0+ny*(w0+5));ctx.lineTo(x0-nx*(w0+5),y0-ny*(w0+5));
+    ctx.lineTo(x1-nx*(w1+5),y1-ny*(w1+5));ctx.lineTo(x1+nx*(w1+5),y1+ny*(w1+5));
+    ctx.closePath(); ctx.fillStyle=`rgba(255,195,0,${(.13*a).toFixed(3)})`; ctx.fill();
+
+    // Body
+    ctx.beginPath();
+    ctx.moveTo(x0+nx*w0,y0+ny*w0);ctx.lineTo(x0-nx*w0,y0-ny*w0);
+    ctx.lineTo(x1-nx*w1,y1-ny*w1);ctx.lineTo(x1+nx*w1,y1+ny*w1);
+    ctx.closePath();
+    ctx.fillStyle=`rgba(255,${Math.round(220-t0*50)},${Math.round(30-t0*15)},${a.toFixed(3)})`; ctx.fill();
+
+    // Highlight
+    ctx.beginPath();
+    ctx.moveTo(x0+nx*w0*.3,y0+ny*w0*.3);ctx.lineTo(x0-nx*w0*.3,y0-ny*w0*.3);
+    ctx.lineTo(x1-nx*w1*.3,y1-ny*w1*.3);ctx.lineTo(x1+nx*w1*.3,y1+ny*w1*.3);
+    ctx.closePath(); ctx.fillStyle=`rgba(255,248,160,${(.58*a).toFixed(3)})`; ctx.fill();
+  }
+}
+
+function drawSplash(ix,iy,power){
+  if(power<.04) return;
+  const r=18*power;
+  const gw=ctx.createRadialGradient(ix,iy,0,ix,iy,r);
+  gw.addColorStop(0,`rgba(255,228,50,${.68*power})`);
+  gw.addColorStop(.5,`rgba(218,172,8,${.25*power})`);
+  gw.addColorStop(1,'rgba(218,172,8,0)');
+  ctx.beginPath(); ctx.arc(ix,iy,r,0,Math.PI*2);
+  ctx.fillStyle=gw; ctx.fill();
+}
+
+function spawnDrops(ix,iy,power){
+  if(Math.random()>.65) return;
+  for(let i=0;i<2;i++){
+    const a=Math.random()*Math.PI*2,spd=(1+Math.random()*2)*power;
+    drops.push({x:ix,y:iy,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd-1.2,life:1,r:1.2+Math.random()*2});
+  }
+}
+
+function tickDrops(){
+  drops=drops.filter(d=>d.life>0);
+  drops.forEach(d=>{
+    d.x+=d.vx;d.y+=d.vy;d.vy+=.16;d.life-=.07;
+    ctx.beginPath();ctx.arc(d.x,d.y,d.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(240,200,20,${(d.life*.6).toFixed(2)})`;ctx.fill();
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  PROGRESS
+// ═══════════════════════════════════════════════
+function updateProgress(){
+  const pct=totalDirty>0?Math.min(clearedPx/totalDirty,1):0;
+  const n=Math.round(pct*100);
+  document.getElementById('progress-bar').style.width=n+'%';
+  document.getElementById('progress-pct').textContent=n+'%';
+  document.getElementById('hud-score').textContent=gs.score+Math.round(pct*1000);
+}
+
+// ═══════════════════════════════════════════════
+//  GAME LOOP / TIMER
+// ═══════════════════════════════════════════════
+function gameLoop(){if(!gs.running)return;render();rafId=requestAnimationFrame(gameLoop);}
+
+function startTimer(s){
+  clearInterval(timerInterval);
+  gs.timeLeft=gs.timerMax=s; updateTimerUI();
+  timerInterval=setInterval(()=>{gs.timeLeft--;updateTimerUI();if(gs.timeLeft<=0){clearInterval(timerInterval);endLevel();}},1000);
+}
+
+function updateTimerUI(){
+  const el=document.getElementById('hud-timer'),bar=document.getElementById('timer-bar');
+  el.textContent=gs.timeLeft; bar.style.width=(gs.timeLeft/gs.timerMax*100)+'%';
+  const u=gs.timeLeft<=5; el.classList.toggle('urgent',u); bar.classList.toggle('urgent',u);
+}
+
+// ═══════════════════════════════════════════════
+//  LEVEL FLOW
+// ═══════════════════════════════════════════════
+function startGame(){gs.level=0;gs.score=0;showScreen('game-screen');beginLevel();}
+
+function beginLevel(){
+  const cfg=LEVELS[Math.min(gs.level,LEVELS.length-1)];
+  document.getElementById('hud-level').textContent=gs.level+1;
+  document.getElementById('level-tag').textContent=`Level ${gs.level+1} — ${cfg.label}`;
+  generateLevel(gs.level); gs.running=true;
+  cancelAnimationFrame(rafId); rafId=requestAnimationFrame(gameLoop);
+  startTimer(cfg.time);
+}
+
+function endLevel(){
+  gs.running=false; cancelAnimationFrame(rafId); clearInterval(timerInterval);
+  const cfg=LEVELS[Math.min(gs.level,LEVELS.length-1)];
+  const pct=totalDirty>0?clearedPx/totalDirty:0;
+  gs.score+=Math.round(pct*1000)+Math.round(gs.timeLeft*20);
+  if(pct>=cfg.goal){gs.level++;if(gs.level>=LEVELS.length)showResult(true,pct);else flashLevel(()=>beginLevel());}
+  else showResult(false,pct);
+}
+
+function flashLevel(cb){
+  const el=document.getElementById('level-flash');
+  document.getElementById('level-flash-text').textContent=`LEVEL ${gs.level+1}`;
+  el.classList.add('show'); setTimeout(()=>{el.classList.remove('show');cb();},1200);
+}
+
+function showResult(won,pct){
+  const tl=gs.timeLeft,v=document.getElementById('result-verdict');
+  v.textContent=won?'CLEARED!':'STREAM OVER'; v.className='result-verdict '+(won?'win':'lose');
+  document.getElementById('result-score').textContent=gs.score;
+  document.getElementById('rs-cleared').textContent=Math.round(pct*100)+'%';
+  document.getElementById('rs-level').textContent=gs.level;
+  document.getElementById('rs-time').textContent=tl+'s';
+  document.getElementById('rs-bonus').textContent='+'+Math.round(tl*20);
+  lastFinalScore=gs.score;
+  document.getElementById('player-name-input').value=localStorage.getItem('sc_name')||'';
+  showScreen('result-screen');
+}
+
+// ═══════════════════════════════════════════════
+//  LEADERBOARD
+// ═══════════════════════════════════════════════
+function getLB(){try{return JSON.parse(localStorage.getItem(LB_KEY))||[];}catch{return[];}}
+function saveLB(lb){localStorage.setItem(LB_KEY,JSON.stringify(lb));}
+
+function submitScore(){
+  const name=document.getElementById('player-name-input').value.trim().toUpperCase()||'ANONYMOUS';
+  localStorage.setItem('sc_name',name);
+  const lb=getLB();
+  lb.push({name,score:lastFinalScore,level:gs.level,date:new Date().toLocaleDateString()});
+  lb.sort((a,b)=>b.score-a.score); saveLB(lb.slice(0,20));
+  showScreen('lb-screen'); loadLeaderboard(name);
+}
+
+function loadLeaderboard(hi){
+  const lb=getLB(),tbody=document.getElementById('lb-body');
+  if(!lb.length){tbody.innerHTML='<tr><td colspan="3"><div class="empty-lb">No scores yet.</div></td></tr>';return;}
+  tbody.innerHTML=lb.map((e,i)=>`
+    <tr class="${hi&&e.name===hi?'my-score':''}">
+      <td class="rank-num">${i+1}</td>
+      <td>${e.name} <span class="lb-level-badge">LV${e.level}</span></td>
+      <td class="lb-score-cell">${e.score.toLocaleString()}</td>
+    </tr>`).join('');
+}
+</script>
+</body>
+</html>

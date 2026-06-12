@@ -76,7 +76,7 @@
 </head>
 <body>
 <div id="app-header">
-  <span class="app-id"><a href="https://augustineiacopelli.github.io/appaday/">← AppADay</a></span>
+  <span class="app-id"><a href="../index.html">← AppADay</a></span>
   <span class="app-title-small">Stream Cleaner</span>
   <span class="app-id">#002</span>
 </div>
@@ -87,8 +87,8 @@
   <div class="screen active" id="start-screen">
     <div class="instructions">
       <strong>The mission:</strong> blast the urinal screen clean before time runs out.<br><br>
-      <strong>Press and drag</strong> anywhere on the pad to move the hose across the surface. The stream arcs up and forward — the further up the pad you aim, the further the stream reaches ahead.<br><br>
-      <strong>Power ramps up</strong> at the start and fades at the end — just like real life.<br><br>
+      <strong>Press and drag</strong> to aim. The stream arcs up and away from you — drag toward the back of the pad to reach further, side to side to aim left and right.<br><br>
+      <strong>Power ramps up</strong> at the start (shorter reach) and fades at the end — just like real life.<br><br>
       <strong>80% clean</strong> or better to advance.
     </div>
     <button class="btn btn-primary" onclick="startGame()">STEP UP TO THE PLATE</button>
@@ -168,111 +168,148 @@ const PAD_COLORS = [
   {r:40, g:166,b:76, dr:26, dg:117,db:53, lr:92, lg:203,lb:122},
   {r:212,g:124,b:31, dr:160,dg:90, db:16, lr:232,lg:168,lb:90 },
 ];
-const LB_KEY = 'sc_lb_v7';
+const LB_KEY = 'sc_lb_v8';
 
 // ═══════════════════════════════════════════════
-//  CANVAS / LAYOUT
-//  The entire canvas IS the pad. The hose graphic
-//  is drawn on top of the pad, positioned wherever
-//  the player drags. No "below" zone — the hose
-//  floats on the pad surface like a top-down view.
+//  PERSPECTIVE / DEPTH MODEL
+//  PAD is a trapezoid: narrow at top (far), wide at bottom (near).
+//  HOSE is fixed at bottom-center — the player's position.
+//  Drag controls aim: vertical position = depth (how far the stream
+//  lands), horizontal position = lateral aim.
 // ═══════════════════════════════════════════════
 let canvas, ctx, CW, CH;
 let padData = null, totalDirty = 0, clearedPx = 0, drops = [];
 let gs = {level:0,score:0,timeLeft:25,timerMax:25,running:false,pressing:false};
 let timerInterval=null, rafId=null, lastFinalScore=0;
 
-// Hose position — the CENTER of the hose unit on the pad
-// Player drags anywhere on the canvas to move it
-let hoseX=0, hoseY=0, targetX=0, targetY=0;
+let padTopY, padBotY, padTopL, padTopR, padBotL, padBotR;
+let aimDepth=0.15, aimLateral=0.5, targetDepth=0.15, targetLateral=0.5;
+let swayPhase=0;
 
-// ── Stream power ──────────────────────────────
 function streamPower(){
   const elapsed  = gs.timerMax - gs.timeLeft;
-  const ramp     = gs.timerMax * 0.05;
-  if(elapsed   < ramp) return elapsed   / ramp;
-  if(gs.timeLeft < ramp) return gs.timeLeft / ramp;
-  return 1;
+  const ramp     = Math.max(1, gs.timerMax * 0.05);
+  let p;
+  if (elapsed < ramp) p = (elapsed+1) / ramp;       // never exactly 0 at start
+  else if (gs.timeLeft < ramp) p = gs.timeLeft / ramp;
+  else p = 1;
+  return Math.min(1, Math.max(0, p));
 }
 
-// ── Impact point ─────────────────────────────
-// The stream exits the nozzle upward and arcs forward.
-// "Forward" = toward the TOP of the pad (smaller Y).
-// When the hose is near the BOTTOM of the pad (hoseY close to CH):
-//   angle is steep → stream lands close ahead (small X-offset, small Y-offset)
-// When the hose is near the TOP (hoseY close to 0):
-//   angle is shallow → stream lands further ahead
-//
-// In practice: impact Y = hoseY - fixedReach*power
-//              impact X = hoseX (same column — no side drift)
-// The hose itself IS the cursor, so wherever you drag = wherever you aim.
-// The nozzle tip is at hoseX, hoseY - nozzleOffset.
-// The stream cleans at the nozzle tip position directly.
-// This way moving the hose across any part of the pad cleans that area.
+const BRUSH_R_NEAR = 34;
+const BRUSH_R_FAR  = 14;
+const CLEAN_ST     = 0.06;
 
-const HOSE_R   = 14;  // visual radius of hose unit
-const BRUSH_R  = 12;  // tight cleaning radius — like a focused stream hit
-const CLEAN_ST = 0.55;
-
-function nozzleTip(){
-  // Nozzle is at the top of the hose unit
-  return { x: hoseX, y: hoseY - HOSE_R };
+function padPoint(depth, lateral){
+  const y = padBotY + (padTopY - padBotY) * depth;
+  const leftX  = padBotL + (padTopL - padBotL) * depth;
+  const rightX = padBotR + (padTopR - padBotR) * depth;
+  const x = leftX + (rightX - leftX) * lateral;
+  return {x, y};
 }
 
-// The stream ARC is purely visual — control point rises above tip.
-// The CLEANING happens at tip.x, tip.y (= hoseX, hoseY - HOSE_R).
-// Moving the hose IS aiming — you clean wherever the hose is.
-function arcControlPoint(tip){
-  const power = streamPower();
-  // Arc rises and comes back down to tip — visual only
-  // How far the arc rises = based on position in pad
-  const posY = hoseY / CH; // 0=top, 1=bottom
-  // Deeper in pad = taller arc (steeper angle)
-  const arcH = CH * 0.20 * power * (0.4 + posY * 0.8);
-  return { x: tip.x, y: tip.y - arcH };
+// ── Hexagon pad shape, defined in normalized (lateral, depth) space ──
+// lateral: 0=left .. 1=right.  depth: 0=near/bottom .. 1=far/top.
+// Shape: elongated hexagon with points on left/right, like the real screen.
+const HEX_VERTS = [
+  {lat:0.50, dep:0.92}, // top point (far)
+  {lat:0.85, dep:0.68}, // upper right
+  {lat:0.85, dep:0.32}, // lower right
+  {lat:0.50, dep:0.08}, // bottom point (near)
+  {lat:0.15, dep:0.32}, // lower left
+  {lat:0.15, dep:0.68}, // upper left
+];
+
+// Convert normalized hex vertices to pixel coordinates
+function hexPixelVerts(){
+  return HEX_VERTS.map(v => padPoint(v.dep, v.lat));
 }
 
-// ═══════════════════════════════════════════════
-//  INIT
-// ═══════════════════════════════════════════════
+// Point-in-polygon (ray casting) — test in normalized (lateral,depth) space
+function pointInHex(lateral, depth){
+  let inside = false;
+  for(let i=0,j=HEX_VERTS.length-1; i<HEX_VERTS.length; j=i++){
+    const xi=HEX_VERTS[i].lat, yi=HEX_VERTS[i].dep;
+    const xj=HEX_VERTS[j].lat, yj=HEX_VERTS[j].dep;
+    if(((yi>depth)!==(yj>depth)) &&
+       (lateral < (xj-xi)*(depth-yi)/(yj-yi)+xi)){
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// Convert a pixel coordinate to normalized (lateral,depth) using the
+// same inverse trapezoid mapping as setAim()
+function pixelToNorm(px,py){
+  let depth = (padBotY - py) / (padBotY - padTopY);
+  const leftX  = padBotL + (padTopL - padBotL) * depth;
+  const rightX = padBotR + (padTopR - padBotR) * depth;
+  const lateral = (px - leftX) / (rightX - leftX);
+  return {lateral, depth};
+}
+
+function hosePos(){
+  return { x:(padBotL+padBotR)/2, y: CH - CH*0.04 };
+}
+
 document.addEventListener('DOMContentLoaded',()=>{
   canvas = document.getElementById('game-canvas');
   ctx    = canvas.getContext('2d',{willReadFrequently:true});
   sizeCanvas();
-  hoseX=targetX=CW/2; hoseY=targetY=CH*0.75;
   attachInputs();
 });
 
 function sizeCanvas(){
   const wrap = document.getElementById('game-wrap');
   CW = wrap.clientWidth||340;
-  CH = Math.round(CW*0.92);
+  CH = Math.round(CW*1.05);
   wrap.style.height=CH+'px';
   canvas.width=CW; canvas.height=CH;
+  computePadGeometry();
 }
 
-// ═══════════════════════════════════════════════
-//  INPUT — drag anywhere to move the hose
-// ═══════════════════════════════════════════════
+function computePadGeometry(){
+  // The trapezoid below is just the MAPPING SPACE for the hexagon —
+  // it's not drawn directly. Shrunk and centered so the hexagon pad
+  // sits smaller, with room around it for the urinal bowl graphic.
+  padTopY = CH*0.18 - CH*0.022;
+  padBotY = CH*0.62 + CH*0.022;
+  const cx = CW/2;
+  const farHalfWidth  = CW*0.20*1.1;
+  const nearHalfWidth = CW*0.28*1.1;
+  padTopL = cx - farHalfWidth;  padTopR = cx + farHalfWidth;
+  padBotL = cx - nearHalfWidth; padBotR = cx + nearHalfWidth;
+}
+
 function attachInputs(){
-  canvas.addEventListener('mousedown', e=>{e.preventDefault();gs.pressing=true; moveTarget(e);},{passive:false});
-  canvas.addEventListener('mousemove', e=>{e.preventDefault();moveTarget(e);if(e.buttons>0)gs.pressing=true;},{passive:false});
+  canvas.addEventListener('mousedown', e=>{e.preventDefault();gs.pressing=true; setAim(e);},{passive:false});
+  canvas.addEventListener('mousemove', e=>{e.preventDefault();setAim(e);if(e.buttons>0)gs.pressing=true;},{passive:false});
   canvas.addEventListener('mouseup',   ()=>gs.pressing=false);
   canvas.addEventListener('mouseleave',()=>gs.pressing=false);
-  canvas.addEventListener('touchstart',e=>{e.preventDefault();gs.pressing=true; moveTarget(e);},{passive:false});
-  canvas.addEventListener('touchmove', e=>{e.preventDefault();moveTarget(e);},{passive:false});
+  canvas.addEventListener('touchstart',e=>{e.preventDefault();gs.pressing=true; setAim(e);},{passive:false});
+  canvas.addEventListener('touchmove', e=>{e.preventDefault();setAim(e);},{passive:false});
   canvas.addEventListener('touchend',  ()=>gs.pressing=false,{passive:false});
 }
 
-function moveTarget(e){
+function setAim(e){
   if(!gs.running) return;
   const rect=canvas.getBoundingClientRect();
   const sx=CW/rect.width, sy=CH/rect.height;
   const cx=e.touches?e.touches[0].clientX:e.clientX;
   const cy=e.touches?e.touches[0].clientY:e.clientY;
-  const m=HOSE_R+4;
-  targetX=Math.max(m,Math.min(CW-m,(cx-rect.left)*sx));
-  targetY=Math.max(m,Math.min(CH-m,(cy-rect.top)*sy));
+  const px=(cx-rect.left)*sx, py=(cy-rect.top)*sy;
+
+  let depth = (padBotY - py) / (padBotY - padTopY);
+  depth = Math.max(0.12, Math.min(0.88, depth));
+
+  const leftX  = padBotL + (padTopL - padBotL) * depth;
+  const rightX = padBotR + (padTopR - padBotR) * depth;
+  let lateral = (px - leftX) / (rightX - leftX);
+  lateral = Math.max(0, Math.min(1, lateral));
+
+  targetDepth = depth;
+  targetLateral = lateral;
 }
 
 function showScreen(id){
@@ -280,76 +317,147 @@ function showScreen(id){
   document.getElementById(id).classList.add('active');
 }
 
-// ═══════════════════════════════════════════════
-//  LEVEL GENERATION
-// ═══════════════════════════════════════════════
 function generateLevel(idx){
   const c=PAD_COLORS[idx%PAD_COLORS.length];
   ctx.clearRect(0,0,CW,CH);
 
-  // Dark surround
-  ctx.fillStyle='#0f0c08'; ctx.fillRect(0,0,CW,CH);
+  // Floor/wall background
+  const floorGrad = ctx.createLinearGradient(0,0,0,CH);
+  floorGrad.addColorStop(0,'#2a2420');
+  floorGrad.addColorStop(0.5,'#1c1712');
+  floorGrad.addColorStop(1,'#0a0806');
+  ctx.fillStyle=floorGrad; ctx.fillRect(0,0,CW,CH);
 
-  // Pad fills nearly entire canvas
-  const m=CW*0.03, rad=CW*0.045;
-  const L=m,T=m,W=CW-m*2,H=CH-m*2;
+  // Wall tile lines (top portion, above the urinal)
+  const wallH = CH*0.18;
+  ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
+  for(let x=0;x<CW;x+=CW*0.12){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,wallH); ctx.stroke(); }
+  for(let y=0;y<wallH;y+=CW*0.12){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(CW,y); ctx.stroke(); }
 
-  ctx.shadowColor='rgba(0,0,0,.6)'; ctx.shadowBlur=12; ctx.shadowOffsetY=4;
-  ctx.beginPath(); rrect(ctx,L,T,W,H,rad);
+  // ── Urinal bowl (porcelain, viewed from above/front) ──
+  const bowlCX = CW*0.5;
+  const bowlTopY = CH*0.10;
+  const bowlBotY = CH*0.96;
+  const bowlTopHalfW = CW*0.46;
+  const bowlBotHalfW = CW*0.30;
+
+  ctx.beginPath();
+  ctx.moveTo(bowlCX-bowlTopHalfW, bowlTopY);
+  ctx.quadraticCurveTo(bowlCX-bowlTopHalfW*1.05, CH*0.55, bowlCX-bowlBotHalfW*0.5, bowlBotY);
+  ctx.quadraticCurveTo(bowlCX, bowlBotY+CH*0.04, bowlCX+bowlBotHalfW*0.5, bowlBotY);
+  ctx.quadraticCurveTo(bowlCX+bowlTopHalfW*1.05, CH*0.55, bowlCX+bowlTopHalfW, bowlTopY);
+  ctx.closePath();
+  const bowlGrad = ctx.createLinearGradient(0,bowlTopY,0,bowlBotY);
+  bowlGrad.addColorStop(0,'#e8e2d8');
+  bowlGrad.addColorStop(0.5,'#cfc8bc');
+  bowlGrad.addColorStop(1,'#b8b0a2');
+  ctx.fillStyle=bowlGrad; ctx.fill();
+
+  // Bowl inner shading (depth shadow toward bottom/drain)
+  ctx.beginPath();
+  ctx.moveTo(bowlCX-bowlTopHalfW, bowlTopY);
+  ctx.quadraticCurveTo(bowlCX-bowlTopHalfW*1.05, CH*0.55, bowlCX-bowlBotHalfW*0.5, bowlBotY);
+  ctx.quadraticCurveTo(bowlCX, bowlBotY+CH*0.04, bowlCX+bowlBotHalfW*0.5, bowlBotY);
+  ctx.quadraticCurveTo(bowlCX+bowlTopHalfW*1.05, CH*0.55, bowlCX+bowlTopHalfW, bowlTopY);
+  ctx.closePath();
+  const innerShade = ctx.createRadialGradient(bowlCX,CH*0.35,CW*0.1,bowlCX,CH*0.6,CW*0.6);
+  innerShade.addColorStop(0,'rgba(0,0,0,0)');
+  innerShade.addColorStop(1,'rgba(0,0,0,.30)');
+  ctx.fillStyle=innerShade; ctx.fill();
+
+  // Bowl rim highlight (top edge)
+  ctx.beginPath();
+  ctx.moveTo(bowlCX-bowlTopHalfW, bowlTopY);
+  ctx.lineTo(bowlCX+bowlTopHalfW, bowlTopY);
+  ctx.lineWidth=CW*0.015; ctx.strokeStyle='rgba(255,255,255,.35)';
+  ctx.lineCap='round'; ctx.stroke();
+
+  // ── Hexagonal screen pad, mapped via padPoint ──
+  const verts = hexPixelVerts();
+
+  ctx.shadowColor='rgba(0,0,0,.5)'; ctx.shadowBlur=10; ctx.shadowOffsetY=3;
+  ctx.beginPath();
+  verts.forEach((v,i)=> i===0?ctx.moveTo(v.x,v.y):ctx.lineTo(v.x,v.y));
+  ctx.closePath();
   ctx.fillStyle=`rgb(${c.r},${c.g},${c.b})`; ctx.fill();
   ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
 
-  // Hex texture
+  // Hex texture clipped to the hexagon pad
   ctx.save();
-  ctx.beginPath(); rrect(ctx,L,T,W,H,rad); ctx.clip();
-  const hexR=CW*0.034,hexW=hexR*2,hexHH=Math.sqrt(3)*hexR;
-  const cols=Math.ceil(W/(hexW*.75))+2, rows=Math.ceil(H/hexHH)+2;
+  ctx.beginPath();
+  verts.forEach((v,i)=> i===0?ctx.moveTo(v.x,v.y):ctx.lineTo(v.x,v.y));
+  ctx.closePath(); ctx.clip();
+
+  const padMinX = Math.min(...verts.map(v=>v.x));
+  const padMaxX = Math.max(...verts.map(v=>v.x));
+  const padMinY = Math.min(...verts.map(v=>v.y));
+  const padMaxY = Math.max(...verts.map(v=>v.y));
+  const padW = padMaxX-padMinX, padH2 = padMaxY-padMinY;
+
+  const hexR = CW*0.030;
+  const hexW = hexR*2, hexHH = Math.sqrt(3)*hexR;
+  const cols = Math.ceil(padW/(hexW*0.75))+2;
+  const rows = Math.ceil(padH2/hexHH)+2;
   for(let row=-1;row<rows;row++){
     for(let col=-1;col<cols;col++){
-      const hx=L+col*hexW*.75, hy=T+row*hexHH+(col%2===0?0:hexHH/2), ir=hexR*.50;
+      const hx = padMinX + col*hexW*0.75;
+      const hy = padMinY + row*hexHH + (col%2===0?0:hexHH/2);
+      const ir = hexR*0.5;
       ctx.beginPath();
       for(let i=0;i<6;i++){const a=(Math.PI/3)*i-Math.PI/6;ctx.lineTo(hx+ir*Math.cos(a),hy+ir*Math.sin(a));}
       ctx.closePath();
       ctx.fillStyle=`rgba(${c.dr},${c.dg},${c.db},.65)`; ctx.fill();
-      ctx.beginPath(); ctx.arc(hx-ir*.28,hy-ir*.28,ir*.15,0,Math.PI*2);
+      ctx.beginPath();
+      ctx.arc(hx-ir*.28,hy-ir*.28,ir*.16,0,Math.PI*2);
       ctx.fillStyle=`rgba(${c.lr},${c.lg},${c.lb},.45)`; ctx.fill();
     }
   }
   ctx.restore();
 
-  // Rim highlight
-  ctx.beginPath(); rrect(ctx,L,T,W,H,rad);
-  const hl=ctx.createLinearGradient(0,T,0,T+H*.07);
-  hl.addColorStop(0,`rgba(${c.lr},${c.lg},${c.lb},.35)`); hl.addColorStop(1,'rgba(0,0,0,0)');
+  // Top-edge highlight on the hexagon (far edge catches more light)
+  ctx.beginPath();
+  verts.forEach((v,i)=> i===0?ctx.moveTo(v.x,v.y):ctx.lineTo(v.x,v.y));
+  ctx.closePath();
+  const hl=ctx.createLinearGradient(0,padMinY,0,padMinY+padH2*0.18);
+  hl.addColorStop(0,`rgba(${c.lr},${c.lg},${c.lb},.40)`); hl.addColorStop(1,'rgba(0,0,0,0)');
   ctx.fillStyle=hl; ctx.fill();
 
-  // Capture pixel data
-  padData   =ctx.getImageData(0,0,CW,CH);
-  totalDirty=countDirty(padData);
-  clearedPx =0; drops=[];
-  hoseX=targetX=CW/2; hoseY=targetY=CH*0.75;
+  padData   = ctx.getImageData(0,0,CW,CH);
+  totalDirty= countDirtyInPad(padData);
+  clearedPx = 0; drops=[];
+  targetDepth=0.5; targetLateral=0.5; aimDepth=0.5; aimLateral=0.5;
+  swayPhase=0;
 }
 
-function rrect(c,x,y,w,h,r){
-  c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.arcTo(x+w,y,x+w,y+r,r);
-  c.lineTo(x+w,y+h-r);c.arcTo(x+w,y+h,x+w-r,y+h,r);
-  c.lineTo(x+r,y+h);c.arcTo(x,y+h,x,y+h-r,r);
-  c.lineTo(x,y+r);c.arcTo(x,y,x+r,y,r);c.closePath();
+function inPad(px,py){
+  const {lateral, depth} = pixelToNorm(px,py);
+  return pointInHex(lateral, depth);
 }
 
-function countDirty(imgData){
-  const d=imgData.data;let n=0;
-  for(let i=0;i<d.length;i+=4) if(!(d[i]>200&&d[i+1]>200&&d[i+2]>200)) n++;
+function countDirtyInPad(imgData){
+  const d=imgData.data; let n=0;
+  const verts=hexPixelVerts();
+  const minX=Math.max(0,Math.floor(Math.min(...verts.map(v=>v.x))));
+  const maxX=Math.min(CW,Math.ceil(Math.max(...verts.map(v=>v.x))));
+  const minY=Math.max(0,Math.floor(Math.min(...verts.map(v=>v.y))));
+  const maxY=Math.min(CH,Math.ceil(Math.max(...verts.map(v=>v.y))));
+  for(let y=minY;y<maxY;y++){
+    for(let x=minX;x<maxX;x++){
+      if(!inPad(x,y)) continue;
+      const i=(y*CW+x)*4;
+      if(!(d[i]>200&&d[i+1]>200&&d[i+2]>200)) n++;
+    }
+  }
   return n;
 }
 
-// ═══════════════════════════════════════════════
-//  CLEANING — bleach pixels around the hose position
-// ═══════════════════════════════════════════════
-function applyClean(cx,cy){
+function applyClean(cx,cy,radius){
   if(!padData) return;
   const d=padData.data;
-  const r=BRUSH_R, lx=Math.round(cx), ly=Math.round(cy);
+  const r=Math.round(radius);  // MUST be integer — non-integer loop bounds
+                                // produce non-integer px/py below, which
+                                // silently no-op on typed-array writes
+  const lx=Math.round(cx), ly=Math.round(cy);
   let nc=0;
   for(let dy=-r;dy<=r;dy++){
     for(let dx=-r;dx<=r;dx++){
@@ -357,6 +465,7 @@ function applyClean(cx,cy){
       if(dist>r) continue;
       const px=lx+dx,py=ly+dy;
       if(px<0||px>=CW||py<0||py>=CH) continue;
+      if(!inPad(px,py)) continue;
       const idx=(py*CW+px)*4;
       const was=!(d[idx]>200&&d[idx+1]>200&&d[idx+2]>200);
       const f=Math.exp(-(dist*dist)/(2*(r*.42)*(r*.42)))*CLEAN_ST;
@@ -370,63 +479,76 @@ function applyClean(cx,cy){
   updateProgress();
 }
 
-// ═══════════════════════════════════════════════
-//  RENDER
-// ═══════════════════════════════════════════════
 function render(){
-  // Smooth hose toward target
-  hoseX+=(targetX-hoseX)*0.20;
-  hoseY+=(targetY-hoseY)*0.20;
+  aimDepth   += (targetDepth   - aimDepth)   * 0.18;
+  aimLateral += (targetLateral - aimLateral) * 0.18;
 
-  // Restore pad
   if(padData) ctx.putImageData(padData,0,0);
 
-  const power=streamPower();
-  const tip=nozzleTip();
-  const cp=arcControlPoint(tip);
+  const power = streamPower();
+  const hose  = hosePos();
+
+  // ── Drunken sway: as the level progresses, aim gets increasingly
+  // unsteady — small at the start, noticeably wobbly by the end ──
+  const elapsedFrac = 1 - (gs.timeLeft / gs.timerMax); // 0 -> 1 over the level
+  const swayMag = elapsedFrac * elapsedFrac * 0.10;     // ramps in, accelerating
+  swayPhase += 0.06;
+  const swayDepth   = Math.sin(swayPhase*1.3) * swayMag;
+  const swayLateral = Math.sin(swayPhase*0.9 + 1.7) * swayMag * 1.4;
+
+  const sweptDepth   = Math.max(0.12, Math.min(0.88, aimDepth   + swayDepth));
+  const sweptLateral = Math.max(0,    Math.min(1,    aimLateral + swayLateral));
+
+  // At low power, land near the WIDE MIDDLE of the hexagon (depth ~0.45)
+  // rather than the narrow near tip (depth ~0.08). As power increases,
+  // the player's drag-controlled depth (aimDepth) takes over fully.
+  const effectiveDepth = 0.45 + (sweptDepth - 0.45) * power;
+  const land  = padPoint(effectiveDepth, sweptLateral);
 
   if(gs.pressing && power>0.01){
-    // Clean at the nozzle tip position AND at points along the visual arc
-    // so sweeping the hose across the pad leaves a proper trail
-    const arcSteps = 5;
-    for(let s=0; s<=arcSteps; s++){
-      const t = s/arcSteps;
-      const mt = 1-t;
-      // Quadratic bezier point along the arc (first half, going up)
-      const ax = mt*mt*tip.x + 2*mt*t*cp.x + t*t*cp.x;
-      const ay = mt*mt*tip.y + 2*mt*t*cp.y + t*t*cp.y;
-      applyClean(ax, ay);
-    }
-    drawStream(tip, cp, power);
-    drawSplash(tip.x, tip.y, power);
-    spawnDrops(tip.x, tip.y, power);
+    const r = BRUSH_R_NEAR + (BRUSH_R_FAR-BRUSH_R_NEAR)*effectiveDepth;
+    applyClean(land.x, land.y, r);
+    drawStream(hose, land, effectiveDepth, power);
+    drawSplash(land.x, land.y, r, power);
+    spawnDrops(land.x, land.y, power);
   }
 
-  drawHose(hoseX, hoseY, power);
+  drawHose(hose, power);
   tickDrops();
 }
 
-// ═══════════════════════════════════════════════
-//  DRAW HOSE — viewed from above, sitting on pad
-//  Flesh-coloured cylindrical body with hand
-// ═══════════════════════════════════════════════
-function drawHose(hx,hy,power){
-  const bW=CW*0.072, bH=CW*0.155;
-  const bx=hx-bW/2, by=hy-bH*0.55;
+// Safari/iOS-safe rounded-rect path (ctx.roundRect is unsupported in some
+// WebKit builds, including this preview environment — calling it throws,
+// which silently kills the render loop on frame 1 since the exception
+// happens before requestAnimationFrame is re-scheduled).
+function rr(c,x,y,w,h,r){
+  c.moveTo(x+r,y);
+  c.lineTo(x+w-r,y);
+  c.arcTo(x+w,y,x+w,y+r,r);
+  c.lineTo(x+w,y+h-r);
+  c.arcTo(x+w,y+h,x+w-r,y+h,r);
+  c.lineTo(x+r,y+h);
+  c.arcTo(x,y+h,x,y+h-r,r);
+  c.lineTo(x,y+r);
+  c.arcTo(x,y,x+r,y,r);
+  c.closePath();
+}
+
+function drawHose(hose, power){
+  const hx=hose.x, hy=hose.y;
+  const bW=CW*0.078, bH=CW*0.165;
+  const bx=hx-bW/2, by=hy-bH*0.92;
   const s1='#c68642',s2='#e8a96a',s3='#9a5c28';
 
-  // Body
   const bg=ctx.createLinearGradient(bx,0,bx+bW,0);
   bg.addColorStop(0,s3);bg.addColorStop(.25,s1);bg.addColorStop(.55,s2);bg.addColorStop(.80,s1);bg.addColorStop(1,s3);
-  ctx.beginPath(); ctx.roundRect(bx,by,bW,bH,bW*.22);
+  ctx.beginPath(); rr(ctx,bx,by,bW,bH,bW*.22);
   ctx.fillStyle=bg; ctx.fill(); ctx.strokeStyle=s3; ctx.lineWidth=1.5; ctx.stroke();
 
-  // Vein lines
   ctx.strokeStyle='rgba(100,45,10,.18)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.moveTo(hx-bW*.1,by+bH*.1); ctx.lineTo(hx-bW*.08,by+bH*.85); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(hx+bW*.1,by+bH*.12); ctx.lineTo(hx+bW*.08,by+bH*.82); ctx.stroke();
 
-  // Nozzle at top
   const nH=bW*.65,nTW=bW*.40,nBW=bW*.78,nY=by;
   const ng=ctx.createLinearGradient(hx-nBW/2,0,hx+nBW/2,0);
   ng.addColorStop(0,s3);ng.addColorStop(.4,s2);ng.addColorStop(.7,s1);ng.addColorStop(1,s3);
@@ -435,84 +557,63 @@ function drawHose(hx,hy,power){
   ctx.lineTo(hx+nTW/2,nY);    ctx.lineTo(hx-nTW/2,nY);
   ctx.closePath(); ctx.fillStyle=ng; ctx.fill(); ctx.strokeStyle=s3; ctx.lineWidth=1; ctx.stroke();
 
-  // Chrome collar
   const cG=ctx.createLinearGradient(hx-bW*.55,0,hx+bW*.55,0);
   cG.addColorStop(0,'#666');cG.addColorStop(.3,'#ddd');cG.addColorStop(.7,'#bbb');cG.addColorStop(1,'#555');
-  ctx.beginPath(); ctx.roundRect(hx-bW*.55,nY+nH-bW*.12,bW*1.1,bW*.24,3);
+  ctx.beginPath(); rr(ctx,hx-bW*.55,nY+nH-bW*.12,bW*1.1,bW*.24,3);
   ctx.fillStyle=cG; ctx.fill();
 
-  // Nozzle opening glow
   ctx.beginPath(); ctx.ellipse(hx,nY,nTW*.44,nH*.24,0,0,Math.PI*2);
   ctx.fillStyle=power>.05?`rgba(255,210,0,${.9*power})`:'#111'; ctx.fill();
 
-  // ── Hand wrapped around lower body ──
   const hCY=by+bH*.60, hH=bH*.38, fd='#b07040',fb='#d4946a',fl='#e8ad82',fs='rgba(80,35,8,.25)';
 
-  // Palm
   const pg=ctx.createLinearGradient(hx-bW*.54,0,hx+bW*.54,0);
   pg.addColorStop(0,fd);pg.addColorStop(.25,fb);pg.addColorStop(.55,fl);pg.addColorStop(.80,fb);pg.addColorStop(1,fd);
-  ctx.beginPath(); ctx.roundRect(hx-bW*.54,hCY-hH/2,bW*1.08,hH,bW*.16);
+  ctx.beginPath(); rr(ctx,hx-bW*.54,hCY-hH/2,bW*1.08,hH,bW*.16);
   ctx.fillStyle=pg; ctx.fill(); ctx.strokeStyle=fd; ctx.lineWidth=.9; ctx.stroke();
 
-  // Fingers (right side, stacked vertically along shaft)
   const fW=bW*.80,fH2=hH*.20,fGap=hH*.235,fX=hx+bW*.52,fSY=hCY-hH*.44;
   [.95,1,.98,.82].forEach((reach,i)=>{
     const fy=fSY+i*fGap,fw=fW*reach;
     const fg=ctx.createLinearGradient(fX,0,fX+fw,0);
     fg.addColorStop(0,fb);fg.addColorStop(.5,fl);fg.addColorStop(1,fd);
-    ctx.beginPath(); ctx.roundRect(fX,fy,fw,fH2,fH2*.45);
+    ctx.beginPath(); rr(ctx,fX,fy,fw,fH2,fH2*.45);
     ctx.fillStyle=fg; ctx.fill(); ctx.strokeStyle=fd; ctx.lineWidth=.7; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(fX+fw*.3,fy+fH2*.55); ctx.lineTo(fX+fw*.85,fy+fH2*.55);
     ctx.strokeStyle=fs; ctx.lineWidth=1; ctx.stroke();
   });
 
-  // Thumb (left)
   const tW=bW*.58,tH=hH*.52,tX=hx-bW*.52-tW,tY=hCY-tH*.52;
   const tg=ctx.createLinearGradient(tX,0,tX+tW,0);
   tg.addColorStop(0,fd);tg.addColorStop(.5,fl);tg.addColorStop(1,fb);
-  ctx.beginPath(); ctx.roundRect(tX,tY,tW,tH,tW*.42);
+  ctx.beginPath(); rr(ctx,tX,tY,tW,tH,tW*.42);
   ctx.fillStyle=tg; ctx.fill(); ctx.strokeStyle=fd; ctx.lineWidth=.8; ctx.stroke();
   ctx.beginPath(); ctx.moveTo(tX+tW*.15,tY+tH*.48); ctx.lineTo(tX+tW*.85,tY+tH*.46);
   ctx.strokeStyle=fs; ctx.lineWidth=1; ctx.stroke();
 
-  // Glint
   ctx.beginPath(); ctx.ellipse(hx-bW*.16,by+bH*.10,bW*.08,bH*.055,-.3,0,Math.PI*2);
   ctx.fillStyle='rgba(255,215,165,.20)'; ctx.fill();
 }
 
-// ═══════════════════════════════════════════════
-//  DRAW STREAM — arc rises from nozzle tip upward
-//  Control point directly above tip → exits going up,
-//  then falls back to same X (symmetric arch)
-// ═══════════════════════════════════════════════
-function drawStream(tip, cp, power){
+function drawStream(hose, land, depth, power){
   if(power<.02) return;
 
-  // Arch: rises from tip up to cp, then back down to tip
-  // (visual only — cleaning happens at hose position)
-  const sx=tip.x, sy=tip.y;
-  const ex=tip.x, ey=tip.y; // ends back at tip (arch)
-  const cpx=cp.x, cpy=cp.y;
+  const sx=hose.x, sy=hose.y - CW*0.06;
+  const ex=land.x, ey=land.y;
 
-  const steps=20;
+  const dist = Math.sqrt((ex-sx)**2+(ey-sy)**2);
+  const peakX = sx + (ex-sx)*0.45;
+  const peakY = Math.min(sy,ey) - dist*0.35*power - CW*0.04;
+
+  const steps=22;
   const spX=[],spY=[];
   for(let i=0;i<=steps;i++){
     const t=i/steps, mt=1-t;
-    // Use cubic bezier to make a proper arch: goes up then comes back down
-    // P0=tip, P1=left-of-peak, P2=right-of-peak, P3=tip
-    // Simplified: use two quadratic curves stitched
-    if(t<=0.5){
-      const t2=t*2, mt2=1-t2;
-      spX.push(mt2*mt2*sx + 2*mt2*t2*cpx + t2*t2*cpx);
-      spY.push(mt2*mt2*sy + 2*mt2*t2*cpy + t2*t2*cpy);
-    } else {
-      const t2=(t-0.5)*2, mt2=1-t2;
-      spX.push(mt2*mt2*cpx + 2*mt2*t2*cpx + t2*t2*ex);
-      spY.push(mt2*mt2*cpy + 2*mt2*t2*cpy + t2*t2*ey);
-    }
+    spX.push(mt*mt*sx + 2*mt*t*peakX + t*t*ex);
+    spY.push(mt*mt*sy + 2*mt*t*peakY + t*t*ey);
   }
 
-  function wAt(t){ return Math.max(1.5,(4.5+t*2)*power*(1-.50*Math.sin(Math.PI*t))); }
+  function wAt(t){ return Math.max(1.2,(4.5+t*1.5)*power*(1-.45*Math.sin(Math.PI*t))*(1-depth*0.4)); }
 
   for(let i=0;i<steps;i++){
     const t0=i/steps;
@@ -522,20 +623,17 @@ function drawStream(tip, cp, power){
     const nx=-dy/len,ny=dx/len;
     const a=(0.88-t0*.22)*power;
 
-    // Glow
     ctx.beginPath();
     ctx.moveTo(x0+nx*(w0+5),y0+ny*(w0+5));ctx.lineTo(x0-nx*(w0+5),y0-ny*(w0+5));
     ctx.lineTo(x1-nx*(w1+5),y1-ny*(w1+5));ctx.lineTo(x1+nx*(w1+5),y1+ny*(w1+5));
     ctx.closePath(); ctx.fillStyle=`rgba(255,195,0,${(.13*a).toFixed(3)})`; ctx.fill();
 
-    // Body
     ctx.beginPath();
     ctx.moveTo(x0+nx*w0,y0+ny*w0);ctx.lineTo(x0-nx*w0,y0-ny*w0);
     ctx.lineTo(x1-nx*w1,y1-ny*w1);ctx.lineTo(x1+nx*w1,y1+ny*w1);
     ctx.closePath();
     ctx.fillStyle=`rgba(255,${Math.round(220-t0*50)},${Math.round(30-t0*15)},${a.toFixed(3)})`; ctx.fill();
 
-    // Highlight
     ctx.beginPath();
     ctx.moveTo(x0+nx*w0*.3,y0+ny*w0*.3);ctx.lineTo(x0-nx*w0*.3,y0-ny*w0*.3);
     ctx.lineTo(x1-nx*w1*.3,y1-ny*w1*.3);ctx.lineTo(x1+nx*w1*.3,y1+ny*w1*.3);
@@ -543,9 +641,8 @@ function drawStream(tip, cp, power){
   }
 }
 
-function drawSplash(ix,iy,power){
+function drawSplash(ix,iy,r,power){
   if(power<.04) return;
-  const r=18*power;
   const gw=ctx.createRadialGradient(ix,iy,0,ix,iy,r);
   gw.addColorStop(0,`rgba(255,228,50,${.68*power})`);
   gw.addColorStop(.5,`rgba(218,172,8,${.25*power})`);
@@ -571,9 +668,6 @@ function tickDrops(){
   });
 }
 
-// ═══════════════════════════════════════════════
-//  PROGRESS
-// ═══════════════════════════════════════════════
 function updateProgress(){
   const pct=totalDirty>0?Math.min(clearedPx/totalDirty,1):0;
   const n=Math.round(pct*100);
@@ -582,10 +676,20 @@ function updateProgress(){
   document.getElementById('hud-score').textContent=gs.score+Math.round(pct*1000);
 }
 
-// ═══════════════════════════════════════════════
-//  GAME LOOP / TIMER
-// ═══════════════════════════════════════════════
-function gameLoop(){if(!gs.running)return;render();rafId=requestAnimationFrame(gameLoop);}
+function gameLoop(){
+  if(!gs.running) return;
+  try {
+    render();
+  } catch(err){
+    // Never let a drawing error silently freeze the loop —
+    // cleaning/scoring (applyClean/updateProgress) happens
+    // inside render() BEFORE most decorative drawing, so even
+    // if something below throws, padData/score are already
+    // updated and the next frame will display them.
+    console.error('render error:', err);
+  }
+  rafId=requestAnimationFrame(gameLoop);
+}
 
 function startTimer(s){
   clearInterval(timerInterval);
@@ -599,9 +703,6 @@ function updateTimerUI(){
   const u=gs.timeLeft<=5; el.classList.toggle('urgent',u); bar.classList.toggle('urgent',u);
 }
 
-// ═══════════════════════════════════════════════
-//  LEVEL FLOW
-// ═══════════════════════════════════════════════
 function startGame(){gs.level=0;gs.score=0;showScreen('game-screen');beginLevel();}
 
 function beginLevel(){
@@ -641,9 +742,6 @@ function showResult(won,pct){
   showScreen('result-screen');
 }
 
-// ═══════════════════════════════════════════════
-//  LEADERBOARD
-// ═══════════════════════════════════════════════
 function getLB(){try{return JSON.parse(localStorage.getItem(LB_KEY))||[];}catch{return[];}}
 function saveLB(lb){localStorage.setItem(LB_KEY,JSON.stringify(lb));}
 

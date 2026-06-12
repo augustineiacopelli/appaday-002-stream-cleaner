@@ -34,6 +34,10 @@ Single-file HTML/CSS/JavaScript. Canvas-based rendering with per-pixel ImageData
 
 Stream mechanics are intentionally simplified for the daily time budget. The aiming system and stream physics are good candidates for a future upgrade day.
 
+## Updates
+
+2026-06-12: Significantly updated the logic to clear boards and added more realisic depth to field.
+
 ---
 
 [← Back to AppADay Portfolio](../index.html)

@@ -76,7 +76,7 @@
 </head>
 <body>
 <div id="app-header">
-  <span class="app-id"><a href="https://augustineiacopelli.github.io/appaday/">← AppADay</a></span>
+  <span class="app-id"><a href="../index.html">← AppADay</a></span>
   <span class="app-title-small">Stream Cleaner</span>
   <span class="app-id">#002</span>
 </div>
@@ -86,12 +86,12 @@
 
   <div class="screen active" id="start-screen">
     <div class="instructions">
-      <strong>The mission:</strong> blast the urinal screen clean before time runs out.<br><br>
+      <strong>The mission:</strong> blast the deodorizing screen clean before time runs out.<br><br>
       <strong>Press and drag</strong> to aim. The stream arcs up and away from you — drag toward the back of the pad to reach further, side to side to aim left and right.<br><br>
-      <strong>Power ramps up</strong> at the start (shorter reach) and fades at the end — just like real life.<br><br>
+      <strong>Power ramps up</strong> at the start (shorter reach) and fades at the end — pressure builds then drops.<br><br>
       <strong>80% clean</strong> or better to advance.
     </div>
-    <button class="btn btn-primary" onclick="startGame()">STEP UP TO THE PLATE</button>
+    <button class="btn btn-primary" onclick="startGame()">START CLEANING</button>
     <div style="height:10px"></div>
     <button class="btn btn-ghost" onclick="showScreen('lb-screen');loadLeaderboard()">🏆 Leaderboard</button>
   </div>
@@ -272,7 +272,7 @@ function sizeCanvas(){
 function computePadGeometry(){
   // The trapezoid below is just the MAPPING SPACE for the hexagon —
   // it's not drawn directly. Shrunk and centered so the hexagon pad
-  // sits smaller, with room around it for the urinal bowl graphic.
+  // sits smaller, with room around it for the bowl graphic.
   padTopY = CH*0.18 - CH*0.022;
   padBotY = CH*0.62 + CH*0.022;
   const cx = CW/2;
@@ -328,13 +328,13 @@ function generateLevel(idx){
   floorGrad.addColorStop(1,'#0a0806');
   ctx.fillStyle=floorGrad; ctx.fillRect(0,0,CW,CH);
 
-  // Wall tile lines (top portion, above the urinal)
+  // Wall tile lines (top portion, above the fixture)
   const wallH = CH*0.18;
   ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
   for(let x=0;x<CW;x+=CW*0.12){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,wallH); ctx.stroke(); }
   for(let y=0;y<wallH;y+=CW*0.12){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(CW,y); ctx.stroke(); }
 
-  // ── Urinal bowl (porcelain, viewed from above/front) ──
+  // ── Porcelain fixture bowl, viewed from above/front ──
   const bowlCX = CW*0.5;
   const bowlTopY = CH*0.10;
   const bowlBotY = CH*0.96;
@@ -538,14 +538,14 @@ function drawHose(hose, power){
   const hx=hose.x, hy=hose.y;
   const bW=CW*0.078, bH=CW*0.165;
   const bx=hx-bW/2, by=hy-bH*0.92;
-  const s1='#c68642',s2='#e8a96a',s3='#9a5c28';
+  const s1='#2d7a2d',s2='#4aad4a',s3='#1a4d1a';
 
   const bg=ctx.createLinearGradient(bx,0,bx+bW,0);
   bg.addColorStop(0,s3);bg.addColorStop(.25,s1);bg.addColorStop(.55,s2);bg.addColorStop(.80,s1);bg.addColorStop(1,s3);
   ctx.beginPath(); rr(ctx,bx,by,bW,bH,bW*.22);
   ctx.fillStyle=bg; ctx.fill(); ctx.strokeStyle=s3; ctx.lineWidth=1.5; ctx.stroke();
 
-  ctx.strokeStyle='rgba(100,45,10,.18)'; ctx.lineWidth=1;
+  ctx.strokeStyle='rgba(15,50,15,.35)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.moveTo(hx-bW*.1,by+bH*.1); ctx.lineTo(hx-bW*.08,by+bH*.85); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(hx+bW*.1,by+bH*.12); ctx.lineTo(hx+bW*.08,by+bH*.82); ctx.stroke();
 
@@ -563,7 +563,7 @@ function drawHose(hose, power){
   ctx.fillStyle=cG; ctx.fill();
 
   ctx.beginPath(); ctx.ellipse(hx,nY,nTW*.44,nH*.24,0,0,Math.PI*2);
-  ctx.fillStyle=power>.05?`rgba(255,210,0,${.9*power})`:'#111'; ctx.fill();
+  ctx.fillStyle=power>.05?`rgba(120,210,255,${.9*power})`:'#111'; ctx.fill();
 
   const hCY=by+bH*.60, hH=bH*.38, fd='#b07040',fb='#d4946a',fl='#e8ad82',fs='rgba(80,35,8,.25)';
 
@@ -592,7 +592,7 @@ function drawHose(hose, power){
   ctx.strokeStyle=fs; ctx.lineWidth=1; ctx.stroke();
 
   ctx.beginPath(); ctx.ellipse(hx-bW*.16,by+bH*.10,bW*.08,bH*.055,-.3,0,Math.PI*2);
-  ctx.fillStyle='rgba(255,215,165,.20)'; ctx.fill();
+  ctx.fillStyle='rgba(180,255,180,.18)'; ctx.fill();
 }
 
 function drawStream(hose, land, depth, power){
@@ -626,27 +626,27 @@ function drawStream(hose, land, depth, power){
     ctx.beginPath();
     ctx.moveTo(x0+nx*(w0+5),y0+ny*(w0+5));ctx.lineTo(x0-nx*(w0+5),y0-ny*(w0+5));
     ctx.lineTo(x1-nx*(w1+5),y1-ny*(w1+5));ctx.lineTo(x1+nx*(w1+5),y1+ny*(w1+5));
-    ctx.closePath(); ctx.fillStyle=`rgba(255,195,0,${(.13*a).toFixed(3)})`; ctx.fill();
+    ctx.closePath(); ctx.fillStyle=`rgba(120,210,255,${(.18*a).toFixed(3)})`; ctx.fill();
 
     ctx.beginPath();
     ctx.moveTo(x0+nx*w0,y0+ny*w0);ctx.lineTo(x0-nx*w0,y0-ny*w0);
     ctx.lineTo(x1-nx*w1,y1-ny*w1);ctx.lineTo(x1+nx*w1,y1+ny*w1);
     ctx.closePath();
-    ctx.fillStyle=`rgba(255,${Math.round(220-t0*50)},${Math.round(30-t0*15)},${a.toFixed(3)})`; ctx.fill();
+    ctx.fillStyle=`rgba(${Math.round(80+t0*40)},${Math.round(180+t0*30)},255,${a.toFixed(3)})`; ctx.fill();
 
     ctx.beginPath();
     ctx.moveTo(x0+nx*w0*.3,y0+ny*w0*.3);ctx.lineTo(x0-nx*w0*.3,y0-ny*w0*.3);
     ctx.lineTo(x1-nx*w1*.3,y1-ny*w1*.3);ctx.lineTo(x1+nx*w1*.3,y1+ny*w1*.3);
-    ctx.closePath(); ctx.fillStyle=`rgba(255,248,160,${(.58*a).toFixed(3)})`; ctx.fill();
+    ctx.closePath(); ctx.fillStyle=`rgba(200,240,255,${(.65*a).toFixed(3)})`; ctx.fill();
   }
 }
 
 function drawSplash(ix,iy,r,power){
   if(power<.04) return;
   const gw=ctx.createRadialGradient(ix,iy,0,ix,iy,r);
-  gw.addColorStop(0,`rgba(255,228,50,${.68*power})`);
-  gw.addColorStop(.5,`rgba(218,172,8,${.25*power})`);
-  gw.addColorStop(1,'rgba(218,172,8,0)');
+  gw.addColorStop(0,`rgba(180,230,255,${.75*power})`);
+  gw.addColorStop(.5,`rgba(80,180,255,${.28*power})`);
+  gw.addColorStop(1,'rgba(80,180,255,0)');
   ctx.beginPath(); ctx.arc(ix,iy,r,0,Math.PI*2);
   ctx.fillStyle=gw; ctx.fill();
 }
@@ -664,7 +664,7 @@ function tickDrops(){
   drops.forEach(d=>{
     d.x+=d.vx;d.y+=d.vy;d.vy+=.16;d.life-=.07;
     ctx.beginPath();ctx.arc(d.x,d.y,d.r,0,Math.PI*2);
-    ctx.fillStyle=`rgba(240,200,20,${(d.life*.6).toFixed(2)})`;ctx.fill();
+    ctx.fillStyle=`rgba(120,200,255,${(d.life*.6).toFixed(2)})`;ctx.fill();
   });
 }
 
